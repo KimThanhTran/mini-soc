@@ -21,38 +21,65 @@ It exists to show the three parts of SOC work, and how they feed each other:
 | **Monitor, analyse and handle incidents** | Alerts mapped to MITRE ATT&CK, incidents with a status life cycle, timeline, analyst notes and a response playbook per incident type, dashboard with live feed and coverage matrix |
 | **Join larger technology projects** | Four services plus a database wired with Compose, a documented threat model, an honest evaluation of the ML part, tests for every rule |
 
-Vietnamese summary: [see the end of this page](#tóm-tắt-tiếng-việt).
+**Contents:** [Run it](#run-it) · [Two-minute tour](#two-minute-tour) · [Architecture](#architecture) · [Detection rules](#detection-rules) ·
+[Incident handling](#incident-handling) · [Honeypots](#honeypots) · [Anomaly detection](#anomaly-detection-isolationforest) ·
+[API](#api-at-a-glance) · [Threat model](#threat-model) · [Limitations](#limitations) · [Roadmap](#roadmap) ·
+[Tiếng Việt](#tóm-tắt-tiếng-việt)
+
+| | |
+|---|---|
+| **Backend** | Python 3.13, FastAPI, SQLAlchemy 2, PostgreSQL 16, scikit-learn, PyYAML |
+| **Sensors** | asyncssh (decoy SSH), FastAPI (decoy web site), signed batch shipper |
+| **Dashboard** | React 18 + Vite, nginx; light and dark theme, English and Vietnamese |
+| **Delivery** | Docker Compose (internal network, hardened containers), GitHub Actions (lint, tests, full-stack smoke test) |
+| **Quality** | 124 automated tests: every rule has a positive and a negative case; 92 % line coverage on the backend |
 
 ## Run it
 
 You need Docker (Compose v2). Nothing else.
 
-```powershell
+```bash
 docker compose up --build
 ```
 
 Open <http://127.0.0.1:8080> and sign in with the demo token `demo-analyst-token-change-me`. The `simulator` container runs
 once after the API is healthy: it replays an hour of benign traffic, sends ten labelled attack scenarios, then attacks the two
-honeypots over the Compose network. About a minute later the dashboard is full. To replay it, or to play it again with
-another seed:
+honeypots over the Compose network. About a minute later the dashboard is full. To play it again, with another seed:
 
-```powershell
+```bash
 docker compose run --rm simulator python simulate.py --seed 7
 ```
 
 To use your own secrets, copy `.env.example` to `.env` and fill it in. Without one, Compose uses the labelled demo values and
 the API logs a warning. The dashboard is the only published port, and only on `127.0.0.1`; the API's Swagger page is at
-<http://127.0.0.1:8080/api/docs>.
+<http://127.0.0.1:8080/api/docs>. `docker compose down -v` removes everything, including the database volume.
 
-Run the tests without Docker:
+**Run the tests without Docker** (Python 3.13 and Node 24):
 
-```powershell
-python -m venv backend/.venv
-backend/.venv/Scripts/pip install -r backend/requirements-dev.txt -r sensors/requirements.txt
-cd backend; ../backend/.venv/Scripts/python -m pytest --cov=app    # 104 tests, 92 % line coverage
-cd ..; backend/.venv/Scripts/python -m pytest sensors/tests         # 16 tests (honeypots, shipper, simulator guard)
-cd frontend; npm ci; npm test; npm run build                        # 4 tests
+```bash
+python -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r backend/requirements-dev.txt -r sensors/requirements.txt
+(cd backend && python -m pytest --cov=app)               # 104 tests, 92 % line coverage
+python -m pytest sensors/tests                           # 16 tests: honeypots, shipper, simulator safety guard
+ruff check .                                             # lint
+(cd frontend && npm ci && npm test && npm run build)     # 4 tests, production build
+(cd backend && python -m app.evaluate --seeds 10)        # precision and recall of rules vs model
 ```
+
+## Two-minute tour
+
+Once the dashboard is full:
+
+1. **Overview.** The live feed mixes rule alerts (with ATT&CK chips such as `T1190`) and `ML` alerts from the anomaly model.
+   Top attackers shows the addresses behind them, with a country from the demo geolocation table.
+2. **Incidents.** Open the incident for `172.24.0.7`: that is the simulator's real SSH login attempts against the decoy, so a
+   *Honeypot contact*, a *Brute force* and an *Anomaly* alert from three different detectors sit in one incident, each type with
+   its own playbook. Move it to *Investigating*, tick a step, write a note, and watch the timeline record all three.
+3. **ATT&CK coverage.** Technique cells darken with the alerts their rules raised; empty tactics are visible gaps, not hidden ones.
+4. **See what the rules miss.** Three simulated attacks (slow brute force, slow password spray, slow web scan) are built to stay
+   under every rule threshold. They show up only as `ML` alerts. That is the argument for running both detectors.
+5. **Try the safety rails.** `curl http://127.0.0.1:8080/api/stats` answers `401`; the simulator refuses to run against a
+   public address: `docker compose run --rm simulator python simulate.py --api http://8.8.8.8`.
 
 ## Architecture
 
@@ -215,6 +242,22 @@ How to read this, honestly:
   (6) and ordinary users who mistyped a password several times (7). The threshold (`contamination=0.02`) is a
   precision/recall dial: at 0.005 the model had no false positives and caught only 20 % of the attackers.
 
+## API at a glance
+
+Interactive docs at `/api/docs`. Ingestion needs the sensor headers `X-Sensor-Id`, `X-Timestamp` and
+`X-Signature = hex(HMAC-SHA256(secret, timestamp + "." + body))`; everything else needs `Authorization: Bearer <token>`.
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/ingest` | Batch of up to 500 raw records (`source`: `ssh`, `web`, `windows`, `honeypot_ssh`, `honeypot_web`); answers `{accepted, rejected[], alerts}` |
+| `GET /api/alerts?limit=` | Newest alerts first (the live feed) |
+| `GET /api/incidents?status=` | Incident board |
+| `GET /api/incidents/{id}` | Detail: playbook, timeline, notes, the alerts behind it |
+| `PATCH /api/incidents/{id}` | Move the status (illegal moves answer `409`) and edit analyst notes |
+| `POST /api/incidents/{id}/playbook/{n}` | Tick or untick a playbook step |
+| `GET /api/stats`, `GET /api/coverage` | Counters, alerts per 5 minutes, top attackers; ATT&CK matrix |
+| `GET /healthz` | Liveness |
+
 ## Threat model
 
 What this platform protects and from whom. Assets: the integrity of alerts and incidents (a forged or suppressed alert is
@@ -255,6 +298,13 @@ capabilities dropped, an internal network, a strict CSP on the dashboard. Detail
 - **The evaluation is on synthetic data** (see above). Nothing here was tested against real attackers or real logs.
 - **Response is a checklist, not automation.** "Block the IP" is a step for a human; nothing touches a firewall.
 - **Not tested with the SSH honeypot exposed to the internet**, and deliberately not designed for it.
+
+## Roadmap
+
+What I would do next, in order: users and roles with an audit trail; move the engine's windows to Redis so the API can scale
+out; a real GeoIP database plus VPN and travel allow-lists; idempotent ingestion; Alembic migrations and data retention;
+server-sent events instead of polling; response actions behind an approval step (block an address at a firewall); replaying
+real, anonymised logs through the evaluation harness.
 
 ## Layout
 
