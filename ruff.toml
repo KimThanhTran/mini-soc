@@ -1,0 +1,12 @@
+line-length = 150
+target-version = "py313"
+src = ["backend", "backend/tests", "sensors"]
+
+[lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E701", "B008", "UP037", "UP045", "UP007", "UP017", "UP035", "E741", "E731", "B905", "B007"]
+
+[lint.per-file-ignores]
+"backend/tests/*" = ["E501", "B011"]
+"sensors/tests/*" = ["E402"]
+"simulator/simulate.py" = ["E402"]

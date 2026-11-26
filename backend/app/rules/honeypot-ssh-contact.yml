@@ -1,0 +1,15 @@
+id: honeypot-ssh-contact
+title: Someone tried the SSH honeypot
+description: Nothing legitimate talks to the decoy SSH service, so any login attempt on it is suspicious by definition.
+level: medium
+tags: [attack.initial_access, attack.t1133]
+detection:
+  contact:
+    source: honeypot_ssh
+  condition: contact
+correlation:
+  type: event_count
+  group_by: [src_ip]
+  timespan: 5m
+  threshold: 1
+incident_type: honeypot_contact

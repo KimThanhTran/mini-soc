@@ -1,0 +1,27 @@
+id: priv-esc-after-login
+title: Privileged action shortly after a login
+description: The same account spawns a root shell, creates or promotes an account with sudo, or is added to an administrator group within ten minutes of logging in.
+level: high
+tags: [attack.privilege_escalation, attack.t1548.003, attack.t1098]
+detection:
+  login:
+    action: auth
+    outcome: success
+  root_shell:
+    action: sudo
+    extra.target_user: root
+    extra.command|re:
+      - '(^|/)(ba|z|da)?sh\b'
+      - 'useradd'
+      - 'usermod\s+-a?G\s+sudo'
+      - 'visudo'
+      - 'chmod\s+u\+s'
+  admin_group:
+    action: group_add
+    extra.group: [Administrators, Domain Admins]
+correlation:
+  type: temporal
+  group_by: [user]
+  timespan: 10m
+  sequence: [login, root_shell or admin_group]
+incident_type: privilege_escalation

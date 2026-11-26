@@ -1,0 +1,18 @@
+id: impossible-travel
+title: Impossible travel between two successful logins
+description: The same account logs in from two countries further apart than 500 km and faster than a plane could fly (900 km/h).
+level: high
+tags: [attack.initial_access, attack.t1078]
+detection:
+  login:
+    action: auth
+    outcome: success
+  condition: login
+correlation:
+  type: impossible_travel
+  group_by: [user]
+  timespan: 24h
+  cooldown: 30m
+  max_speed_kmh: 900
+  min_distance_km: 500
+incident_type: impossible_travel

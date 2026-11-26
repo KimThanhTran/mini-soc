@@ -1,0 +1,22 @@
+id: web-sqli-probe
+title: SQL injection probe in a request path
+description: A request line carrying a classic injection pattern (UNION SELECT, OR 1=1, SLEEP(), information_schema). Probes only; whether one worked is for the analyst to confirm.
+level: high
+tags: [attack.initial_access, attack.t1190]
+detection:
+  request:
+    action: http_request
+  sqli:
+    http_path|re:
+      - 'union\s+select'
+      - '\x27\s*or\s+\x27?\d'
+      - '\bor\s+1\s*=\s*1'
+      - 'sleep\s*\('
+      - 'information_schema'
+  condition: request and sqli
+correlation:
+  type: event_count
+  group_by: [src_ip]
+  timespan: 5m
+  threshold: 1
+incident_type: web_attack

@@ -1,0 +1,21 @@
+id: web-path-traversal
+title: Path traversal probe in a request path
+description: A request that tries to climb out of the web root or name a sensitive system file. The path is percent-decoded twice before matching.
+level: high
+tags: [attack.initial_access, attack.t1190]
+detection:
+  request:
+    action: http_request
+  traversal:
+    http_path|contains:
+      - '../'
+      - '..\'
+      - '/etc/passwd'
+      - '/windows/win.ini'
+  condition: request and traversal
+correlation:
+  type: event_count
+  group_by: [src_ip]
+  timespan: 5m
+  threshold: 1
+incident_type: web_attack

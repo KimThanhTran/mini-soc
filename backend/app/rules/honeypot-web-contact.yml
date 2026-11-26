@@ -1,0 +1,15 @@
+id: honeypot-web-contact
+title: Someone probed the web honeypot
+description: Any request to the decoy admin site, which no user or link points to.
+level: medium
+tags: [attack.reconnaissance, attack.t1595]
+detection:
+  contact:
+    source: honeypot_web
+  condition: contact
+correlation:
+  type: event_count
+  group_by: [src_ip]
+  timespan: 5m
+  threshold: 1
+incident_type: honeypot_contact

@@ -1,0 +1,16 @@
+id: ssh-brute-force
+title: Password guessing against a login service
+description: Ten or more failed logins from one source address within a minute, on any source that reports authentication (sshd, Windows, honeypots).
+level: high
+tags: [attack.credential_access, attack.t1110.001]
+detection:
+  failed_login:
+    action: auth
+    outcome: failure
+  condition: failed_login
+correlation:
+  type: event_count
+  group_by: [src_ip]
+  timespan: 60s
+  threshold: 10
+incident_type: brute_force

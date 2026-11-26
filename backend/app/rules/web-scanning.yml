@@ -1,0 +1,17 @@
+id: web-scanning
+title: Web vulnerability scanning
+description: Fifteen or more distinct paths answered with 404 for one source within a minute, the signature of a wordlist scanner.
+level: medium
+tags: [attack.reconnaissance, attack.t1595.002]
+detection:
+  not_found:
+    action: http_request
+    http_status: 404
+  condition: not_found
+correlation:
+  type: value_count
+  value_field: http_path
+  group_by: [src_ip]
+  timespan: 60s
+  threshold: 15
+incident_type: web_attack

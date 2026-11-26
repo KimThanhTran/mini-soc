@@ -1,0 +1,96 @@
+# docker compose up --build   ->   http://127.0.0.1:8080  (token: see README)
+# The `lab` network is internal: no container on it can reach the internet, and nothing on it is published to the host.
+# Only the dashboard is published, and only on 127.0.0.1.
+name: mini-soc
+
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: minisoc
+      POSTGRES_DB: minisoc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo-postgres-password}
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minisoc"]
+      interval: 3s
+      retries: 20
+    networks: [lab]
+
+  api:
+    <<: *hardened
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://minisoc:${POSTGRES_PASSWORD:-demo-postgres-password}@db:5432/minisoc
+      ANALYST_TOKEN: ${ANALYST_TOKEN:-demo-analyst-token-change-me}
+      SENSOR_KEYS: simulator:${SIM_KEY:-demo-simulator-key-change-me},ssh-honeypot:${SSH_KEY:-demo-ssh-key-change-me},web-honeypot:${WEB_KEY:-demo-web-key-change-me}
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [lab]
+
+  ssh-honeypot:
+    <<: *hardened
+    build: ./sensors
+    command: ["python", "ssh_honeypot.py"]
+    environment:
+      API_URL: http://api:8000
+      SENSOR_ID: ssh-honeypot
+      SENSOR_SECRET: ${SSH_KEY:-demo-ssh-key-change-me}
+    mem_limit: 128m
+    pids_limit: 100
+    networks: [lab]
+
+  web-honeypot:
+    <<: *hardened
+    build: ./sensors
+    command: ["uvicorn", "web_honeypot:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      API_URL: http://api:8000
+      SENSOR_ID: web-honeypot
+      SENSOR_SECRET: ${WEB_KEY:-demo-web-key-change-me}
+      TRUST_XFF: "1"   # lab only: lets the simulator pretend to be several addresses
+    mem_limit: 128m
+    pids_limit: 100
+    networks: [lab]
+
+  dashboard:
+    <<: *hardened
+    build: ./frontend
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on: [api]
+    networks: [lab, edge]
+
+  simulator:   # runs once on `up` to fill the dashboard; run again with: docker compose run --rm simulator
+    build:
+      context: .
+      dockerfile: simulator/Dockerfile
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      API_URL: http://api:8000
+      SENSOR_ID: simulator
+      SENSOR_SECRET: ${SIM_KEY:-demo-simulator-key-change-me}
+      SSH_HONEYPOT_HOST: ssh-honeypot
+      WEB_HONEYPOT_URL: http://web-honeypot:8080
+    depends_on:
+      api: {condition: service_healthy}
+      ssh-honeypot: {condition: service_started}
+      web-honeypot: {condition: service_started}
+    networks: [lab]
+
+networks:
+  lab: {internal: true}
+  edge: {}
+
+volumes:
+  db:
